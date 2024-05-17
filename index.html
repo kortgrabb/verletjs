@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verlet Integration Sandbox</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+        canvas {
+            border: 1px solid black;
+            display: block;
+            margin: 0 auto;
+        }
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            margin-bottom: 10px;
+        }
+        .control {
+            display: flex;
+            align-items: center;
+            margin: 5px 10px;
+        }
+        .control label {
+            margin-right: 10px;
+            white-space: nowrap;
+        }
+        .control input {
+            margin-right: 5px;
+        }
+        .control span {
+            width: 40px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="controls">
+        <div class="control">
+            <label for="gravitySlider">Gravity:</label>
+            <input type="range" id="gravitySlider" min="0" max="200" value="100">
+            <span id="gravityValue">100</span>
+        </div>
+        <div class="control">
+            <label for="stiffnessSlider">Stiffness:</label>
+            <input type="range" id="stiffnessSlider" min="0" max="1" step="0.01" value="0.5">
+            <span id="stiffnessValue">0.5</span>
+        </div>
+        <div class="control">
+            <label for="constraintIterationsSlider">Constraint Iterations:</label>
+            <input type="range" id="constraintIterationsSlider" min="1" max="100" value="25">
+            <span id="constraintIterationsValue">25</span>
+        </div>
+        <div class="control">
+            <label for="boxPointsSlider">Box Points:</label>
+            <input type="range" id="boxPointsSlider" min="2" max="10" value="2">
+            <span id="boxPointsValue">2</span>
+        </div>
+        <div class="control">
+            <label for="circlePointsSlider">Circle Points:</label>
+            <input type="range" id="circlePointsSlider" min="3" max="20" value="10">
+            <span id="circlePointsValue">10</span>
+        </div>
+        <div class="control">
+            <label for="circleRadiusSlider">Circle Radius:</label>
+            <input type="range" id="circleRadiusSlider" min="10" max="100" value="50">
+            <span id="circleRadiusValue">50</span>
+        </div>
+    </div>
+    <canvas id="simulationCanvas" width="800" height="600"></canvas>
+    <script>
+        const config = {
+            gravity: 100,
+            gravityDirection: 1, // 1 for down, -1 for up
+            particleRadius: 5,
+            timeStep: 0.016, // Approximately 60 FPS
+            stiffness: 0.005,  // Stiffness factor (0 to 1, where 1 is the most stiff)
+            constraintIterations: 10, // Number of iterations to solve constraints per frame
+            boxPoints: 2, // Number of points per side of the box
+            circlePoints: 10, // Number of points around the circle
+            circleRadius: 50 // Radius of the circle
+        };
+
+        const canvas = document.getElementById('simulationCanvas');
+        const ctx = canvas.getContext('2d');
+
+        class Particle {
+            constructor(x, y, isFrozen = false) {
+                this.x = x;
+                this.y = y;
+                this.oldX = x;
+                this.oldY = y;
+                this.accelerationX = 0;
+                this.accelerationY = 0;
+                this.isFrozen = isFrozen;
+                this.isDragging = false;
+            }
+
+            applyForce(fx, fy) {
+                if (this.isFrozen || this.isDragging) return;
+                this.accelerationX += fx;
+                this.accelerationY += fy;
+            }
+
+            update() {
+                if (this.isFrozen || this.isDragging) return;
+
+                const tempX = this.x;
+                const tempY = this.y;
+
+                let velocityX = this.x - this.oldX;
+                let velocityY = this.y - this.oldY;
+
+                this.x += velocityX + this.accelerationX * config.timeStep * config.timeStep;
+                this.y += velocityY + this.accelerationY * config.timeStep * config.timeStep;
+
+                this.oldX = tempX;
+                this.oldY = tempY;
+
+                this.accelerationX = 0;
+                this.accelerationY = 0;
+
+                this.handleCollisions();
+            }
+
+            handleCollisions() {
+                const radius = config.particleRadius;
+                const width = canvas.width;
+                const height = canvas.height;
+
+                if (this.x < radius) {
+                    this.x = radius;
+                    this.oldX = this.x + (this.oldX - this.x) * 0.5;
+                } else if (this.x > width - radius) {
+                    this.x = width - radius;
+                    this.oldX = this.x + (this.oldX - this.x) * 0.5;
+                }
+
+                if (this.y < radius) {
+                    this.y = radius;
+                    this.oldY = this.y + (this.oldY - this.y) * 0.5;
+                } else if (this.y > height - radius) {
+                    this.y = height - radius;
+                    this.oldY = this.y + (this.oldY - this.y) * 0.5;
+                }
+            }
+
+            draw() {
+                const velocityX = this.x - this.oldX;
+                const velocityY = this.y - this.oldY;
+                const speed = Math.sqrt(velocityX * velocityX + velocityY * velocityY);
+
+                // Map speed to a color
+                const maxSpeed = 5; // Adjust as needed
+                const t = Math.min(speed / maxSpeed, 1);
+                const r = Math.floor(255 * t);
+                const g = Math.floor(255 * (1 - t));
+                const b = 0;
+
+                ctx.fillStyle = `rgb(${r},${g},${b})`;
+
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, config.particleRadius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            isMouseOver(mx, my) {
+                const dx = mx - this.x;
+                const dy = my - this.y;
+                return Math.sqrt(dx * dx + dy * dy) < config.particleRadius;
+            }
+
+            setPosition(x, y) {
+                this.x = x;
+                this.y = y;
+            }
+        }
+
+        class Constraint {
+            constructor(p1, p2, length, isElastic = false) {
+                this.p1 = p1;
+                this.p2 = p2;
+                this.length = length;
+                this.isElastic = isElastic;
+            }
+
+            solve() {
+                const dx = this.p2.x - this.p1.x;
+                const dy = this.p2.y - this.p1.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                const difference = this.length - distance;
+                const percent = difference / distance * config.stiffness;
+                const offsetX = dx * percent;
+                const offsetY = dy * percent;
+
+                if (!this.p1.isFrozen && !this.p1.isDragging) {
+                    this.p1.x -= offsetX;
+                    this.p1.y -= offsetY;
+                }
+                if (!this.p2.isFrozen && !this.p2.isDragging) {
+                    this.p2.x += offsetX;
+                    this.p2.y += offsetY;
+                }
+
+                if (this.isElastic) {
+                    const springForce = difference * config.stiffness * 0.5;
+                    this.p1.applyForce(-springForce * dx / distance, -springForce * dy / distance);
+                    this.p2.applyForce(springForce * dx / distance, springForce * dy / distance);
+                }
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.moveTo(this.p1.x, this.p1.y);
+                ctx.lineTo(this.p2.x, this.p2.y);
+                ctx.stroke();
+            }
+        }
+
+        class Wall {
+            constructor(x, y, width, height) {
+                this.x = x;
+                this.y = y;
+                this.width = width;
+                this.height = height;
+            }
+
+            draw() {
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+            }
+        }
+
+        const particles = [];
+        const constraints = [];
+        const walls = [];
+        const attractors = [];
+        let draggingParticle = null;
+        let lastMouseX = 0;
+        let lastMouseY = 0;
+
+        function createParticle(x, y, isFrozen = false) {
+            const particle = new Particle(x, y, isFrozen);
+            particles.push(particle);
+        }
+
+        function createConstraint(p1, p2, length, isElastic = false) {
+            constraints.push(new Constraint(p1, p2, length, isElastic));
+        }
+
+        function createWall(x, y, width, height) {
+            walls.push(new Wall(x, y, width, height));
+        }
+
+        function createAttractor(x, y, strength = 200) {
+            attractors.push({ x, y, strength });
+        }
+
+        function onMouseDown(event) {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = event.clientX - rect.left;
+            const mouseY = event.clientY - rect.top;
+            lastMouseX = mouseX;
+            lastMouseY = mouseY;
+
+            for (let particle of particles) {
+                if (particle.isMouseOver(mouseX, mouseY)) {
+                    draggingParticle = particle;
+                    particle.isDragging = true;
+                    break;
+                }
+            }
+        }
+
+        function onMouseMove(event) {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = event.clientX - rect.left;
+            const mouseY = event.clientY - rect.top;
+            lastMouseX = mouseX;
+            lastMouseY = mouseY;
+
+            if (draggingParticle) {
+                draggingParticle.setPosition(mouseX, mouseY);
+            }
+        }
+
+        function onMouseUp(event) {
+            if (draggingParticle) {
+                draggingParticle.isDragging = false;
+                draggingParticle.oldX = draggingParticle.x;
+                draggingParticle.oldY = draggingParticle.y;
+                draggingParticle = null;
+            }
+        }
+
+        function onKeyDown(event) {
+            if (event.key === 'p') {
+                createParticle(lastMouseX, lastMouseY);
+            }
+
+            if (event.key === 'f') {
+                if (draggingParticle) {
+                    draggingParticle.isFrozen = !draggingParticle.isFrozen;
+                }
+            }
+
+            if (event.key === 'c') {
+                if (draggingParticle) {
+                    let minDistance = Number.MAX_VALUE;
+                    let nearestParticle = null;
+                    for (let particle of particles) {
+                        if (particle !== draggingParticle) {
+                            const dx = particle.x - draggingParticle.x;
+                            const dy = particle.y - draggingParticle.y;
+                            const distance = Math.sqrt(dx * dx + dy * dy);
+                            // Find the nearest particle that is not the dragging particle and not already connected
+                            if (distance < minDistance && !constraints.some(c => (c.p1 === draggingParticle && c.p2 === particle) || (c.p1 === particle && c.p2 === draggingParticle))) {
+                                minDistance = distance;
+                                nearestParticle = particle;
+                            }
+                        }
+                    }
+                    if (nearestParticle) {
+                        createConstraint(draggingParticle, nearestParticle, minDistance);
+                    }
+                }
+            }
+
+            if (event.key === 'r') {
+                createRope(lastMouseX, lastMouseY);
+            }
+
+            if (event.key === 'b') {
+                createBox(lastMouseX, lastMouseY);
+            }
+
+            if (event.key === 'o') {
+                createCircle(lastMouseX, lastMouseY);
+            }
+
+            if (event.key === 'e') {
+                createElasticConnection(lastMouseX, lastMouseY);
+            }
+
+            if (event.key === 'g') {
+                createRandomParticles(10);
+            }
+
+            if (event.key === 'm') {
+                toggleParticleMovement();
+            }
+
+            if (event.key === 'w') {
+                createWall(lastMouseX - 50, lastMouseY - 10, 100, 20);
+            }
+
+            if (event.key === 'a') {
+                createAttractor(lastMouseX, lastMouseY);
+            }
+
+            if (event.key === 'x') {
+                createExplosion(lastMouseX, lastMouseY);
+            }
+
+            if (event.key === 'd') {
+                toggleGravityDirection();
+            }
+        }
+
+        function createRope(startX, startY) {
+            // set segment length to the radius of the particle
+            const segmentLength = config.particleRadius * 2;
+            const numSegments = 20;
+            const ropeParticles = [];
+
+            for (let i = 0; i < numSegments; i++) {
+                const particle = new Particle(startX, startY + i * segmentLength);
+                ropeParticles.push(particle);
+                particles.push(particle);
+            }
+
+            for (let i = 0; i < numSegments - 1; i++) {
+                createConstraint(ropeParticles[i], ropeParticles[i + 1], segmentLength);
+            }
+        }
+
+        function createBox(startX, startY) {
+            const points = config.boxPoints;
+            const boxParticles = [];
+            const boxSize = 75; // Fixed box size
+
+            for (let row = 0; row < points; row++) {
+                for (let col = 0; col < points; col++) {
+                    const particle = new Particle(startX + col * (boxSize / (points - 1)), startY + row * (boxSize / (points - 1)));
+                    boxParticles.push(particle);
+                    particles.push(particle);
+                }
+            }
+
+            // Create horizontal and vertical constraints
+            for (let row = 0; row < points; row++) {
+                for (let col = 0; col < points; col++) {
+                    const index = row * points + col;
+                    if (col < points - 1) {
+                        createConstraint(boxParticles[index], boxParticles[index + 1], boxSize / (points - 1));
+                    }
+                    if (row < points - 1) {
+                        createConstraint(boxParticles[index], boxParticles[index + points], boxSize / (points - 1));
+                    }
+                }
+            }
+
+            // Create diagonal constraints
+            for (let row = 0; row < points - 1; row++) {
+                for (let col = 0; col < points - 1; col++) {
+                    const index = row * points + col;
+                    createConstraint(boxParticles[index], boxParticles[index + points + 1], Math.sqrt(2) * boxSize / (points - 1));
+                    createConstraint(boxParticles[index + 1], boxParticles[index + points], Math.sqrt(2) * boxSize / (points - 1));
+                }
+            }
+        }
+
+        function createCircle(centerX, centerY) {
+            const points = config.circlePoints;
+            const radius = config.circleRadius;
+            const circleParticles = [];
+
+            for (let i = 0; i < points; i++) {
+                const angle = (i / points) * Math.PI * 2;
+                const x = centerX + Math.cos(angle) * radius;
+                const y = centerY + Math.sin(angle) * radius;
+                const particle = new Particle(x, y);
+                circleParticles.push(particle);
+                particles.push(particle);
+            }
+
+            for (let i = 0; i < points; i++) {
+                createConstraint(circleParticles[i], circleParticles[(i + 1) % points], 2 * Math.PI * radius / points);
+            }
+
+            // Add support constraints (spokes) from center to outer particles
+            const centerParticle = new Particle(centerX, centerY, true);
+            particles.push(centerParticle);
+            for (let i = 0; i < points; i++) {
+                createConstraint(centerParticle, circleParticles[i], radius);
+            }
+        }
+
+        function createElasticConnection(startX, startY) {
+            if (draggingParticle) {
+                let minDistance = Number.MAX_VALUE;
+                let nearestParticle = null;
+                for (let particle of particles) {
+                    if (particle !== draggingParticle) {
+                        const dx = particle.x - draggingParticle.x;
+                        const dy = particle.y - draggingParticle.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        if (distance < minDistance) {
+                            minDistance = distance;
+                            nearestParticle = particle;
+                        }
+                    }
+                }
+                if (nearestParticle) {
+                    createConstraint(draggingParticle, nearestParticle, minDistance, true);
+                }
+            }
+        }
+
+        function createRandomParticles(count) {
+            for (let i = 0; i < count; i++) {
+                const x = Math.random() * canvas.width;
+                const y = Math.random() * canvas.height;
+                createParticle(x, y);
+            }
+        }
+
+        function toggleParticleMovement() {
+            for (let particle of particles) {
+                particle.isFrozen = !particle.isFrozen;
+            }
+        }
+
+        function createExplosion(x, y, radius = 100, force = 5000) {
+            for (let particle of particles) {
+                const dx = particle.x - x;
+                const dy = particle.y - y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                if (distance < radius) {
+                    const angle = Math.atan2(dy, dx);
+                    const explosionForce = (1 - distance / radius) * force;
+                    particle.applyForce(Math.cos(angle) * explosionForce, Math.sin(angle) * explosionForce);
+                }
+            }
+        }
+
+        function toggleGravityDirection() {
+            config.gravityDirection *= -1;
+        }
+
+        canvas.addEventListener('mousedown', onMouseDown);
+        canvas.addEventListener('mousemove', onMouseMove);
+        canvas.addEventListener('mouseup', onMouseUp);
+        window.addEventListener('keydown', onKeyDown);
+
+        document.getElementById('gravitySlider').addEventListener('input', function(event) {
+            config.gravity = Number(event.target.value);
+            document.getElementById('gravityValue').textContent = config.gravity;
+        });
+
+        document.getElementById('stiffnessSlider').addEventListener('input', function(event) {
+            config.stiffness = Number(event.target.value);
+            document.getElementById('stiffnessValue').textContent = config.stiffness;
+        });
+
+        document.getElementById('constraintIterationsSlider').addEventListener('input', function(event) {
+            config.constraintIterations = Number(event.target.value);
+            document.getElementById('constraintIterationsValue').textContent = config.constraintIterations;
+        });
+
+        document.getElementById('boxPointsSlider').addEventListener('input', function(event) {
+            config.boxPoints = Number(event.target.value);
+            document.getElementById('boxPointsValue').textContent = config.boxPoints;
+        });
+
+        document.getElementById('circlePointsSlider').addEventListener('input', function(event) {
+            config.circlePoints = Number(event.target.value);
+            document.getElementById('circlePointsValue').textContent = config.circlePoints;
+        });
+
+        document.getElementById('circleRadiusSlider').addEventListener('input', function(event) {
+            config.circleRadius = Number(event.target.value);
+            document.getElementById('circleRadiusValue').textContent = config.circleRadius;
+        });
+
+        function resolveCollision(p1, p2) {
+            const dx = p1.x - p2.x;
+            const dy = p1.y - p2.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            const minDistance = config.particleRadius * 2;
+
+            if (distance < minDistance) {
+                const overlap = minDistance - distance;
+                const offsetX = (overlap * dx) / distance;
+                const offsetY = (overlap * dy) / distance;
+
+                if (!p1.isFrozen && !p1.isDragging) {
+                    p1.x += offsetX / 2;
+                    p1.y += offsetY / 2;
+                }
+
+                if (!p2.isFrozen && !p2.isDragging) {
+                    p2.x -= offsetX / 2;
+                    p2.y -= offsetY / 2;
+                }
+            }
+        }
+
+        function update() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Apply gravity
+            for (let particle of particles) {
+                particle.applyForce(0, config.gravity * config.gravityDirection);
+            }
+
+            // Apply attractors
+            for (let attractor of attractors) {
+                for (let particle of particles) {
+                    const dx = attractor.x - particle.x;
+                    const dy = attractor.y - particle.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    const force = attractor.strength / (distance * distance) * 100.0;
+                    particle.applyForce(dx * force, dy * force);
+                }
+            }
+
+            // Update particles
+            for (let particle of particles) {
+                particle.update();
+            }
+
+            // Solve constraints multiple times for stiffness
+            for (let i = 0; i < config.constraintIterations; i++) {
+                for (let constraint of constraints) {
+                    constraint.solve();
+                }
+            }
+
+            // Resolve collisions between particles
+            for (let i = 0; i < particles.length; i++) {
+                for (let j = i + 1; j < particles.length; j++) {
+                    resolveCollision(particles[i], particles[j]);
+                }
+            }
+
+            // Resolve collisions between particles and walls
+            for (let wall of walls) {
+                for (let particle of particles) {
+                    resolveWallCollision(particle, wall);
+                }
+            }
+
+            // Draw walls
+            for (let wall of walls) {
+                wall.draw();
+            }
+
+            // Draw constraints
+            for (let constraint of constraints) {
+                constraint.draw();
+            }
+
+            // Draw particles
+            for (let particle of particles) {
+                particle.draw();
+            }
+
+            requestAnimationFrame(update);
+        }
+
+        function resolveWallCollision(particle, wall) {
+            const radius = config.particleRadius;
+            if (particle.x > wall.x - radius && particle.x < wall.x + wall.width + radius && particle.y > wall.y - radius && particle.y < wall.y + wall.height + radius) {
+                if (particle.x < wall.x) {
+                    particle.x = wall.x - radius;
+                } else if (particle.x > wall.x + wall.width) {
+                    particle.x = wall.x + wall.width + radius;
+                }
+
+                if (particle.y < wall.y) {
+                    particle.y = wall.y - radius;
+                } else if (particle.y > wall.y + wall.height) {
+                    particle.y = wall.y + wall.height + radius;
+                }
+            }
+        }
+
+        update();
+    </script>
+</body>
+</html>
